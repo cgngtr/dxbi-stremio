@@ -79,6 +79,7 @@
     wideContinue: true,
     videoRowsOnly: true,
     playerExtras: true,
+    calmBar: true,
     seekPreviews: true,
     remainingTime: true,
     externalPlayer: true,
@@ -185,6 +186,7 @@
     { key: "animeTitles", type: "toggle", label: "Titles on anime artwork", description: "Anime catalogs' cover art usually has no title on it: dx.bi writes the name at the bottom of each card in Home and Search rows.", defaultValue: DEFAULTS.animeTitles },
     { key: "wideContinue", type: "toggle", label: "Wide Continue Watching", description: "Show Continue Watching as landscape cards with title art.", defaultValue: DEFAULTS.wideContinue },
     { key: "playerExtras", type: "toggle", label: "Netflix-style player extras", description: "Back/forward 10 seconds buttons, title in the control bar and play/pause feedback.", defaultValue: DEFAULTS.playerExtras },
+    { key: "calmBar", type: "toggle", label: "Calm player bar", description: "Keeps play, ±10 seconds, volume, next episode, subtitles, audio and episodes on the bar, and moves the other buttons into one ⋯ menu.", defaultValue: DEFAULTS.calmBar },
     {
       key: "enhance",
       type: "select",
@@ -363,7 +365,7 @@
     ["Home", ["videoRowsOnly", "billboard", "billboardSource", "billboardInterval", "newEpisodes", "airingRow", "whoIsWatching"]],
     ["Hover cards & trailers", ["previews", "trailers", "trailerDelay"]],
     ["Browsing & library", ["watchedTitles", "librarySort", "streamTools", "addonTools", "watchStats", "reviews", "tmdbKey", "mdblistKey"]],
-    ["Player", ["playerExtras", "remainingTime", "seekPreviews", "enhance", "pictureSound", "streamStats", "rememberPlayback", "playerKeys", "pip", "externalPlayer", "convertVideo"]],
+    ["Player", ["playerExtras", "calmBar", "remainingTime", "seekPreviews", "enhance", "pictureSound", "streamStats", "rememberPlayback", "playerKeys", "pip", "externalPlayer", "convertVideo"]],
     ["Subtitles", ["subtitleStyle", "subtitleFont", "subtitlesStart", "hdrSubtitles"]],
     ["Episodes & skipping", ["skipButtons", "autoSkip", "upNext", "preloadNext", "fillerGuide", "skipFiller"]],
     ["Watch party", ["watchParty", "partyFollow", "partyActivity", "partySounds"]],
@@ -464,6 +466,7 @@
     check: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
     rewind10: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M6.7 2.8v3.9h3.9"/><text x="12" y="14.7" text-anchor="middle" fill="currentColor" stroke="none" style="font: 800 6.4px Inter, sans-serif; letter-spacing: -0.3px">10</text></svg>',
     forward10: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M17.3 2.8v3.9h-3.9"/><text x="12" y="14.7" text-anchor="middle" fill="currentColor" stroke="none" style="font: 800 6.4px Inter, sans-serif; letter-spacing: -0.3px">10</text></svg>',
+    more: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>',
     external: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></svg>',
     tune: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>',
     expand: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4.5h5v5M9.5 19.5h-5v-5M19.5 4.5l-6 6M4.5 19.5l6-6"/></svg>',
@@ -3026,6 +3029,123 @@
     "more-vertical": "More",
   };
 
+  // ---------------------------------------------------------------------------
+  // Calm player bar: the everyday buttons stay, the rest wait in one ⋯ menu
+  // ---------------------------------------------------------------------------
+
+  // dx.bi's own extras, and Stremio's less used buttons by their hover label
+  const CALM_TUCKED = ".dx-stats-btn, .dx-tune-btn, .dx-enh-btn, .dxp-player-btn, .dx-pip, .dx-external";
+  const CALM_TUCKED_LABELS = /^(Playback speed|Cast|Statistics|More options|Fit|Fill|Crop|Stretch|Zoom)\b/;
+  // The menu's groups, top to bottom: picture, playback, elsewhere, numbers, then Stremio's own menu
+  const CALM_GROUPS = [
+    [".dx-tune-btn", ".dx-enh-btn", /^(Fit|Fill|Crop|Stretch|Zoom)\b/],
+    [/^Playback speed/, ".dx-pip"],
+    [".dxp-player-btn", /^Cast/, ".dx-external"],
+    [".dx-stats-btn", /^Statistics/],
+    [/^More options/],
+  ];
+  const calmGroup = (b) => CALM_GROUPS.findIndex((group) => group.some((m) => (typeof m === "string" ? b.matches(m) : m.test(b.title || ""))));
+
+  const calmBar = {
+    menu: null,
+    button: null,
+
+    ensure(row) {
+      const on = !!row && settings.calmBar;
+      if (document.body.hasAttribute("data-dx-calm") !== on) document.body.toggleAttribute("data-dx-calm", on);
+      if (!on) {
+        this.close();
+        const more = row && row.querySelector(":scope > .dx-more");
+        if (more) more.remove();
+        return;
+      }
+      // Stremio's Next Video repeats dx.bi's Next episode: that one goes, without a menu entry
+      const hasNext = !!row.querySelector(":scope > .dx-next");
+      // Stremio keeps some of its buttons in a group of their own inside the row
+      for (const b of row.querySelectorAll(':scope > *, [class*="control-bar-buttons-menu-container"] > *')) {
+        const label = b.title || "";
+        const mark = b.matches(CALM_TUCKED) || CALM_TUCKED_LABELS.test(label) ? "menu" : hasNext && label === "Next Video" ? "repeat" : null;
+        if ((b.dataset.dxTucked || null) === mark) continue;
+        if (mark) b.dataset.dxTucked = mark;
+        else delete b.dataset.dxTucked;
+      }
+      if (!row.querySelector(":scope > .dx-more")) {
+        const b = document.createElement("div");
+        b.className = "dx-seek dx-more";
+        b.title = "More";
+        b.setAttribute("role", "button");
+        b.innerHTML = ICONS.more;
+        b.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (this.menu) this.close();
+          else this.open(b, row);
+        });
+        row.append(b);
+      }
+    },
+
+    open(button, row) {
+      const tucked = [...row.querySelectorAll('[data-dx-tucked="menu"]')]
+        .map((b, i) => ({ b, i, group: calmGroup(b) }))
+        .sort((x, y) => x.group - y.group || x.i - y.i);
+      if (!tucked.length) return;
+      const menu = document.createElement("div");
+      menu.className = "dx-more-menu";
+      menu.setAttribute("role", "menu");
+      let lastGroup = tucked[0].group;
+      for (const { b, group } of tucked) {
+        if (group !== lastGroup) menu.append(Object.assign(document.createElement("hr"), { className: "dx-more-sep" }));
+        lastGroup = group;
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "dx-more-item" + (b.classList.contains("is-on") ? " is-on" : "");
+        item.setAttribute("role", "menuitem");
+        const icon = b.querySelector("svg");
+        let label = (b.title || b.dataset.dxLabel || "").replace(/\s*\([A-Z]\)$/, "");
+        // Stremio names this one after the mode it's in
+        if (/^(Fit|Fill|Crop|Stretch|Zoom)\b/.test(label)) label = `Video size: ${label}`;
+        item.innerHTML = `${icon ? icon.outerHTML : ""}<span>${esc(label)}</span>`;
+        item.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.close();
+          // once this click is over: the panels it opens close on any click outside them
+          setTimeout(() => b.click(), 0);
+        });
+        menu.append(item);
+      }
+      document.body.append(menu);
+      const r = button.getBoundingClientRect();
+      menu.style.right = `${Math.max(8, Math.round(window.innerWidth - r.right))}px`;
+      menu.style.bottom = `${Math.round(window.innerHeight - r.top + 10)}px`;
+      this.menu = menu;
+      this.button = button;
+      button.classList.add("is-on");
+      document.addEventListener("pointerdown", this.onOutside, true);
+      document.addEventListener("keydown", this.onKey, true);
+    },
+
+    onOutside: (e) => {
+      if (calmBar.menu && !calmBar.menu.contains(e.target) && !(e.target.closest && e.target.closest(".dx-more"))) calmBar.close();
+    },
+
+    onKey: (e) => {
+      if (e.key !== "Escape" || !calmBar.menu) return;
+      e.preventDefault();
+      e.stopPropagation();
+      calmBar.close();
+    },
+
+    close() {
+      if (!this.menu) return;
+      this.menu.remove();
+      this.menu = null;
+      if (this.button) this.button.classList.remove("is-on");
+      this.button = null;
+      document.removeEventListener("pointerdown", this.onOutside, true);
+      document.removeEventListener("keydown", this.onKey, true);
+    },
+  };
+
   const player = {
     video: null,
     flashTimer: null,
@@ -3037,6 +3157,7 @@
     ensure() {
       if (!settings.playerExtras || currentRoute() !== "player") {
         this.detach();
+        calmBar.ensure(null);
         if (document.body.hasAttribute("data-dx-ptitle")) document.body.removeAttribute("data-dx-ptitle");
         return;
       }
@@ -3070,6 +3191,8 @@
       this.ensureExternal(row);
       this.ensurePip(row);
       this.labelButtons(root);
+      ensureExtrasStyle();
+      calmBar.ensure(row);
 
       const source = root.querySelector('[class*="player-title"]:not([class*="container"])');
       const text = (source && source.textContent.trim()) || "";
@@ -6884,6 +7007,16 @@
   .dxs-graph polyline { fill: none; stroke: var(--dx-accent, #e50914); stroke-width: 1.6; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
   .dxs-graph.is-empty { border-bottom: 1px dashed rgba(255,255,255,.12); }
   .dx-stats-btn.is-on svg { filter: drop-shadow(0 0 6px rgba(255,255,255,.5)); }
+  body[data-dx-calm] #app [class*="player-container"] [class*="control-bar-buttons-container"] [data-dx-tucked] { display: none !important; }
+  #app [class*="player-container"] [class*="control-bar-buttons-container"] > .dx-more { order: 6; }
+  .dx-more-menu { position: fixed; z-index: 2147482000; display: flex; flex-direction: column; gap: .1rem; min-width: 14rem; padding: .4rem; border: 1px solid rgba(255,255,255,.08); border-radius: .75rem; background: rgba(20,20,22,.94); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: 0 12px 40px rgba(0,0,0,.55); }
+  .dx-more-item { display: flex; align-items: center; gap: .75rem; width: 100%; padding: .55rem .7rem; border: 0; border-radius: .5rem; background: transparent; color: rgba(255,255,255,.8); text-align: left; cursor: pointer; font: 500 .9rem/1.2 Inter, system-ui, sans-serif !important; }
+  .dx-more-item:hover, .dx-more-item:focus-visible { background: rgba(255,255,255,.09); color: #fff; outline: none; }
+  .dx-more-sep { height: 1px; margin: .3rem .5rem; border: 0; background: rgba(255,255,255,.08); }
+  .dx-more-item svg { flex: none; width: 1.15rem; height: 1.15rem; }
+  .dx-more-item svg:not([fill]) { fill: currentColor; }
+  .dx-more-item.is-on { color: #fff; }
+  .dx-more-item.is-on::after { content: ""; flex: none; width: .4rem; height: .4rem; margin-left: auto; border-radius: 50%; background: var(--dx-accent, #e50914); }
   [data-dx-replaced] { display: none !important; }
   .dxt-lines { display: flex; flex-direction: column; gap: .15rem; }
   .dxt-line { display: block; width: 100%; padding: .45rem .65rem; border: 0; border-radius: .5rem; background: transparent; color: rgba(255,255,255,.55); text-align: left; font: 500 .82rem/1.35 Inter, system-ui, sans-serif !important; cursor: pointer; transition: background-color .12s, color .12s; }
