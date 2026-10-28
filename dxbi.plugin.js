@@ -3355,7 +3355,8 @@
     video.className = "dx-splash-video";
     video.muted = !settings.introSound;
     // the intro follows the Sound volume setting too (it used to play at full volume)
-    video.volume = { subtle: 0.45, normal: 0.75, loud: 1 }[settings.soundVolume] ?? 0.45;
+    // (the score is mastered near film loudness, about -15 LUFS, so it sits well below the other levels)
+    video.volume = { subtle: 0.12, normal: 0.25, loud: 0.5 }[settings.soundVolume] ?? 0.12;
     video.playsInline = true;
     video.preload = "auto";
     video.setAttribute("aria-hidden", "true");
